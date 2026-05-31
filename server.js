@@ -8,52 +8,51 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// OTP storage (temporary memory)
+// ================= OTP STORE =================
 const otpStore = {};
 
-// ================= DEBUG START =================
-console.log("🚀 Server Starting...");
-console.log("📧 Gmail User:", process.env.SMTP_USER);
-console.log("🔐 Password exists:", !!process.env.SMTP_PASS);
-// ================= DEBUG END ===================
+// ================= DEBUG =================
+console.log("🚀 Server starting...");
+console.log("📧 SMTP USER:", process.env.SMTP_USER);
+console.log("🔐 PASS EXISTS:", !!process.env.SMTP_PASS);
 
-// ================= TRANSPORTER (METHOD 1) =================
+// ================= GMAIL TRANSPORTER =================
 const transporter = nodemailer.createTransport({
-  service: "gmail",   // ⭐ METHOD 1 FIX
+  service: "gmail",
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
 });
 
-// Verify SMTP connection
-transporter.verify((error, success) => {
+// Verify SMTP on startup
+transporter.verify((error) => {
   if (error) {
-    console.log("❌ SMTP ERROR:");
+    console.log("❌ SMTP NOT READY:");
     console.log(error);
   } else {
-    console.log("✅ SMTP READY TO SEND EMAILS");
+    console.log("✅ SMTP READY");
   }
 });
 
-// ================= FRONTEND PAGE =================
+// ================= FRONTEND =================
 app.get("/", (req, res) => {
   res.send(`
 <!DOCTYPE html>
 <html>
 <head>
-<title>OTP Verification</title>
+<title>OTP System</title>
 </head>
 <body>
 
 <h2>Email OTP Verification</h2>
 
-<input id="email" placeholder="Enter Email" />
+<input id="email" placeholder="Enter Email"/>
 <button onclick="sendOtp()">Send OTP</button>
 
 <br><br>
 
-<input id="otp" placeholder="Enter OTP" />
+<input id="otp" placeholder="Enter OTP"/>
 <button onclick="verifyOtp()">Verify OTP</button>
 
 <p id="msg"></p>
@@ -65,7 +64,7 @@ async function sendOtp(){
 
   const res = await fetch("/send-otp", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {"Content-Type":"application/json"},
     body: JSON.stringify({ email })
   });
 
@@ -79,7 +78,7 @@ async function verifyOtp(){
 
   const res = await fetch("/verify-otp", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {"Content-Type":"application/json"},
     body: JSON.stringify({ email, otp })
   });
 
@@ -94,64 +93,51 @@ async function verifyOtp(){
   `);
 });
 
-// ================= SEND OTP =================
-app.post("/send-otp", async (req, res) => {
-  try {
-    console.log("📩 REQUEST:", req.body);
+// ================= SEND OTP (FIXED NON-BLOCKING) =================
+app.post("/send-otp", (req, res) => {
+  const { email } = req.body;
 
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: "Email required",
-      });
-    }
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    otpStore[email] = {
-      otp,
-      expires: Date.now() + 5 * 60 * 1000,
-    };
-
-    console.log("🔐 OTP GENERATED:", otp);
-
-    const mailOptions = {
-      from: process.env.SMTP_USER,
-      to: email,
-      subject: "Your OTP Code",
-      html: `
-        <h2>Email Verification OTP</h2>
-        <h1>${otp}</h1>
-        <p>This OTP is valid for 5 minutes.</p>
-      `,
-    };
-
-    console.log("📤 Sending email via Gmail service...");
-
-    const info = await transporter.sendMail(mailOptions);
-
-    console.log("✅ EMAIL SENT:");
-    console.log(info);
-
-    res.json({
-      success: true,
-      message: "OTP sent successfully",
-      debug: info,
-    });
-
-  } catch (err) {
-    console.log("❌ ERROR SENDING OTP:");
-    console.error(err);
-
-    res.status(500).json({
+  if (!email) {
+    return res.status(400).json({
       success: false,
-      message: "Failed to send OTP",
-      error: err.message,
-      fullError: err,
+      message: "Email required",
     });
   }
+
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+  otpStore[email] = {
+    otp,
+    expires: Date.now() + 5 * 60 * 1000,
+  };
+
+  console.log("🔐 OTP GENERATED:", otp);
+
+  // 🚀 SEND RESPONSE IMMEDIATELY (IMPORTANT FIX)
+  res.json({
+    success: true,
+    message: "OTP sent (check email)",
+  });
+
+  // 📧 SEND EMAIL IN BACKGROUND (NO HANG)
+  setImmediate(async () => {
+    try {
+      console.log("📤 Sending email...");
+
+      const info = await transporter.sendMail({
+        from: process.env.SMTP_USER,
+        to: email,
+        subject: "Your OTP Code",
+        html: `<h1>Your OTP is ${otp}</h1><p>Valid for 5 minutes</p>`,
+      });
+
+      console.log("✅ EMAIL SENT");
+      console.log(info.messageId);
+    } catch (err) {
+      console.log("❌ EMAIL FAILED:");
+      console.log(err.message);
+    }
+  });
 });
 
 // ================= VERIFY OTP =================
