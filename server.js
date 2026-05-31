@@ -6,23 +6,28 @@ const crypto = require('crypto');
 const app = express();
 app.use(express.json());
 
-// Mock database containing one test user account
+// Mock database for testing
 const mockUsers = [
   { id: 1, email: "testuser@example.com", password: "hashedpassword123", resetToken: null, tokenExpiry: null }
 ];
 
-// Initialize Nodemailer SMTP transporter using your environment variables
+// Configure Nodemailer SMTP Transporter
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: parseInt(process.env.SMTP_PORT || "587"),
-  secure: process.env.SMTP_SECURE === 'true', // true for port 465, false for port 587
+  secure: process.env.SMTP_SECURE === 'true', // true for 465, false for 587
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
   }
 });
 
-// Post endpoint to trigger the password reset email logic
+// New Root Route (Fixes the "Cannot GET /" error)
+app.get('/', (req, res) => {
+  res.status(200).send('Password Reset API Server is running successfully!');
+});
+
+// Forgot Password Route
 app.post('/forgot-password', async (req, res) => {
   const { email } = req.body;
   const user = mockUsers.find(u => u.email === email);
@@ -31,15 +36,14 @@ app.post('/forgot-password', async (req, res) => {
     return res.status(404).json({ error: "User with this email does not exist." });
   }
 
-  // Generate a cryptographically secure random token string
+  // Generate 1-hour secure token
   const token = crypto.randomBytes(20).toString('hex');
   user.resetToken = token;
-  user.tokenExpiry = Date.now() + 3600000; // Token expires in 1 hour
+  user.tokenExpiry = Date.now() + 3600000;
 
   const appUrl = process.env.APP_URL || 'http://localhost:3000';
   const resetLink = `${appUrl}/reset-password?token=${token}`;
 
-  // Configure the sender, recipient, subject line, and HTML body layout
   const mailOptions = {
     from: `"My App Alerts" <${process.env.SMTP_USER}>`,
     to: user.email,
@@ -54,7 +58,6 @@ app.post('/forgot-password', async (req, res) => {
   };
 
   try {
-    // Execute the SMTP mail dispatch operation
     await transporter.sendMail(mailOptions);
     res.status(200).json({ message: "Password reset link sent successfully to email." });
   } catch (error) {
