@@ -1,5 +1,5 @@
 {
-  "name": "otp-verification",
+  "name": "otp-verification-debug",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
