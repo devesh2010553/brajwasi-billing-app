@@ -8,33 +8,28 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// In-memory OTP storage
+// OTP storage (temporary memory)
 const otpStore = {};
 
-// ===================== DEBUG LOGGING =====================
+// ================= DEBUG START =================
 console.log("🚀 Server Starting...");
-console.log("📧 SMTP CONFIG:");
-console.log("HOST:", process.env.SMTP_HOST);
-console.log("PORT:", process.env.SMTP_PORT);
-console.log("USER:", process.env.SMTP_USER);
-console.log("PASS EXISTS:", !!process.env.SMTP_PASS);
-// =========================================================
+console.log("📧 Gmail User:", process.env.SMTP_USER);
+console.log("🔐 Password exists:", !!process.env.SMTP_PASS);
+// ================= DEBUG END ===================
 
-// Transporter
+// ================= TRANSPORTER (METHOD 1) =================
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT),
-  secure: process.env.SMTP_SECURE === "true",
+  service: "gmail",   // ⭐ METHOD 1 FIX
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
 });
 
-// Verify SMTP connection on startup
-transporter.verify(function (error, success) {
+// Verify SMTP connection
+transporter.verify((error, success) => {
   if (error) {
-    console.log("❌ SMTP CONNECTION FAILED:");
+    console.log("❌ SMTP ERROR:");
     console.log(error);
   } else {
     console.log("✅ SMTP READY TO SEND EMAILS");
@@ -102,13 +97,15 @@ async function verifyOtp(){
 // ================= SEND OTP =================
 app.post("/send-otp", async (req, res) => {
   try {
-    console.log("📩 SEND OTP REQUEST:", req.body);
+    console.log("📩 REQUEST:", req.body);
 
     const { email } = req.body;
 
     if (!email) {
-      console.log("❌ No email provided");
-      return res.status(400).json({ success: false, message: "Email required" });
+      return res.status(400).json({
+        success: false,
+        message: "Email required",
+      });
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -118,20 +115,24 @@ app.post("/send-otp", async (req, res) => {
       expires: Date.now() + 5 * 60 * 1000,
     };
 
-    console.log("🔐 Generated OTP:", otp);
+    console.log("🔐 OTP GENERATED:", otp);
 
-    const mailData = {
+    const mailOptions = {
       from: process.env.SMTP_USER,
       to: email,
       subject: "Your OTP Code",
-      html: `<h1>Your OTP is ${otp}</h1><p>Valid for 5 minutes</p>`,
+      html: `
+        <h2>Email Verification OTP</h2>
+        <h1>${otp}</h1>
+        <p>This OTP is valid for 5 minutes.</p>
+      `,
     };
 
-    console.log("📤 Sending email...");
+    console.log("📤 Sending email via Gmail service...");
 
-    const info = await transporter.sendMail(mailData);
+    const info = await transporter.sendMail(mailOptions);
 
-    console.log("✅ EMAIL SENT SUCCESSFULLY");
+    console.log("✅ EMAIL SENT:");
     console.log(info);
 
     res.json({
@@ -155,45 +156,38 @@ app.post("/send-otp", async (req, res) => {
 
 // ================= VERIFY OTP =================
 app.post("/verify-otp", (req, res) => {
-  console.log("🔍 VERIFY OTP:", req.body);
-
   const { email, otp } = req.body;
 
   const record = otpStore[email];
 
   if (!record) {
-    return res.json({ success: false, message: "OTP not found" });
+    return res.json({
+      success: false,
+      message: "OTP not found",
+    });
   }
 
   if (Date.now() > record.expires) {
     delete otpStore[email];
-    return res.json({ success: false, message: "OTP expired" });
+    return res.json({
+      success: false,
+      message: "OTP expired",
+    });
   }
 
   if (record.otp !== otp) {
-    return res.json({ success: false, message: "Invalid OTP" });
+    return res.json({
+      success: false,
+      message: "Invalid OTP",
+    });
   }
 
   delete otpStore[email];
 
-  res.json({ success: true, message: "Email verified successfully" });
-});
-
-// ================= TEST MAIL =================
-app.get("/test-mail", async (req, res) => {
-  try {
-    const info = await transporter.sendMail({
-      from: process.env.SMTP_USER,
-      to: process.env.SMTP_USER,
-      subject: "SMTP TEST EMAIL",
-      text: "If you got this, SMTP is working fine",
-    });
-
-    res.json({ success: true, info });
-  } catch (err) {
-    console.log("❌ TEST MAIL ERROR:", err);
-    res.status(500).json({ error: err.message });
-  }
+  res.json({
+    success: true,
+    message: "Email verified successfully ✅",
+  });
 });
 
 // ================= START SERVER =================
@@ -201,24 +195,4 @@ const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
-});
-app.get("/smtp-test", async (req, res) => {
-  try {
-    const info = await transporter.sendMail({
-      from: process.env.SMTP_USER,
-      to: process.env.SMTP_USER,
-      subject: "SMTP TEST",
-      text: "If you got this, SMTP works"
-    });
-
-    res.json({ success: true, info });
-
-  } catch (err) {
-    console.log("SMTP TEST ERROR:", err);
-
-    res.status(500).json({
-      error: err.message,
-      full: err
-    });
-  }
 });
