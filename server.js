@@ -1,69 +1,34 @@
 require("dotenv").config();
-
 const express = require("express");
-const nodemailer = require("nodemailer");
 
 const app = express();
-
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// ================= OTP STORAGE =================
+// OTP storage
 const otpStore = {};
 
-// ================= DEBUG START =================
-console.log("🚀 SERVER STARTING...");
-console.log("📧 EMAIL USER:", process.env.SMTP_USER);
-console.log("🔐 PASSWORD EXISTS:", !!process.env.SMTP_PASS);
-
-// ================= TRANSPORTER (GMAIL METHOD 1) =================
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
-
-// Verify SMTP on startup
-transporter.verify((err) => {
-  if (err) {
-    console.log("❌ SMTP CONNECTION FAILED:");
-    console.log(err);
-  } else {
-    console.log("✅ SMTP READY");
-  }
-});
-
-// ================= FRONTEND PAGE =================
+// ================= FRONTEND =================
 app.get("/", (req, res) => {
   res.send(`
-<!DOCTYPE html>
-<html>
-<head>
-  <title>OTP System</title>
-</head>
-<body>
+  <h2>OTP System (No SMTP Version)</h2>
 
-<h2>OTP Email Verification</h2>
+  <input id="email" placeholder="Email"/>
+  <button onclick="sendOtp()">Send OTP</button>
 
-<input id="email" placeholder="Enter Email" />
-<button onclick="sendOtp()">Send OTP</button>
+  <br><br>
 
-<br><br>
+  <input id="otp" placeholder="OTP"/>
+  <button onclick="verifyOtp()">Verify</button>
 
-<input id="otp" placeholder="Enter OTP" />
-<button onclick="verifyOtp()">Verify OTP</button>
-
-<p id="msg"></p>
+  <p id="msg"></p>
 
 <script>
-async function sendOtp() {
+async function sendOtp(){
   const email = document.getElementById("email").value;
 
   const res = await fetch("/send-otp", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+    method:"POST",
+    headers: {"Content-Type":"application/json"},
     body: JSON.stringify({ email })
   });
 
@@ -71,13 +36,13 @@ async function sendOtp() {
   document.getElementById("msg").innerText = JSON.stringify(data);
 }
 
-async function verifyOtp() {
+async function verifyOtp(){
   const email = document.getElementById("email").value;
   const otp = document.getElementById("otp").value;
 
   const res = await fetch("/verify-otp", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+    method:"POST",
+    headers: {"Content-Type":"application/json"},
     body: JSON.stringify({ email, otp })
   });
 
@@ -85,26 +50,13 @@ async function verifyOtp() {
   document.getElementById("msg").innerText = JSON.stringify(data);
 }
 </script>
-
-</body>
-</html>
   `);
 });
 
-// ================= SEND OTP (FINAL FIXED VERSION) =================
+// ================= SEND OTP (HTTP EMAIL API) =================
 app.post("/send-otp", async (req, res) => {
   const { email } = req.body;
 
-  console.log("📩 REQUEST RECEIVED:", email);
-
-  if (!email) {
-    return res.status(400).json({
-      success: false,
-      message: "Email is required",
-    });
-  }
-
-  // Generate OTP
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
   otpStore[email] = {
@@ -112,41 +64,53 @@ app.post("/send-otp", async (req, res) => {
     expires: Date.now() + 5 * 60 * 1000,
   };
 
-  console.log("🔐 OTP GENERATED:", otp);
+  console.log("OTP:", otp);
 
   try {
-    console.log("📤 SENDING EMAIL...");
+    console.log("Sending email via HTTPS API...");
 
-    const info = await transporter.sendMail({
-      from: `"OTP System" <${process.env.SMTP_USER}>`,
-      to: email,
-      subject: "Your OTP Code",
-      html: `
-        <div style="font-family: Arial">
-          <h2>Your OTP Code</h2>
-          <h1 style="color:blue">${otp}</h1>
-          <p>This OTP is valid for 5 minutes.</p>
-        </div>
-      `,
+    // 🔥 THIS IS THE KEY PART (NO SMTP)
+    const response = await fetch("https://api.mailchannels.net/tx/v1/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        personalizations: [
+          {
+            to: [{ email }],
+          },
+        ],
+        from: {
+          email: "otp@yourdomain.com",
+          name: "OTP System",
+        },
+        subject: "Your OTP Code",
+        content: [
+          {
+            type: "text/html",
+            value: `<h1>Your OTP is ${otp}</h1><p>Valid for 5 minutes</p>`,
+          },
+        ],
+      }),
     });
 
-    console.log("✅ EMAIL SENT SUCCESSFULLY");
-    console.log("MESSAGE ID:", info.messageId);
+    const data = await response.text();
+
+    console.log("EMAIL API RESPONSE:", data);
 
     return res.json({
       success: true,
-      message: "OTP sent successfully",
-      messageId: info.messageId,
+      message: "OTP sent successfully (HTTP method)",
     });
 
-  } catch (error) {
-    console.log("❌ EMAIL FAILED");
-    console.log(error);
+  } catch (err) {
+    console.log("EMAIL ERROR:", err.message);
 
     return res.status(500).json({
       success: false,
-      message: "Failed to send email",
-      error: error.message,
+      message: "Failed to send OTP",
+      error: err.message,
     });
   }
 });
@@ -158,38 +122,24 @@ app.post("/verify-otp", (req, res) => {
   const record = otpStore[email];
 
   if (!record) {
-    return res.json({
-      success: false,
-      message: "OTP not found",
-    });
+    return res.json({ success: false, message: "OTP not found" });
   }
 
   if (Date.now() > record.expires) {
-    delete otpStore[email];
-    return res.json({
-      success: false,
-      message: "OTP expired",
-    });
+    return res.json({ success: false, message: "OTP expired" });
   }
 
   if (record.otp !== otp) {
-    return res.json({
-      success: false,
-      message: "Invalid OTP",
-    });
+    return res.json({ success: false, message: "Invalid OTP" });
   }
 
   delete otpStore[email];
 
-  return res.json({
+  res.json({
     success: true,
-    message: "OTP verified successfully ✅",
+    message: "OTP verified ✅",
   });
 });
 
-// ================= START SERVER =================
 const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log("🚀 Server running on port", PORT);
-});
+app.listen(PORT, () => console.log("Running on", PORT));
