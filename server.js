@@ -202,3 +202,23 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
 });
+app.get("/smtp-test", async (req, res) => {
+  try {
+    const info = await transporter.sendMail({
+      from: process.env.SMTP_USER,
+      to: process.env.SMTP_USER,
+      subject: "SMTP TEST",
+      text: "If you got this, SMTP works"
+    });
+
+    res.json({ success: true, info });
+
+  } catch (err) {
+    console.log("SMTP TEST ERROR:", err);
+
+    res.status(500).json({
+      error: err.message,
+      full: err
+    });
+  }
+});
