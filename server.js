@@ -6,8 +6,8 @@ const nodemailer = require("nodemailer");
 const app = express();
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// temporary in-memory storage
 const otpStore = {};
 
 const transporter = nodemailer.createTransport({
@@ -20,20 +20,113 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Home Route
+// FRONTEND PAGE
 app.get("/", (req, res) => {
-  res.send("OTP Email Verification API Running");
+  res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+<title>Email OTP Verification</title>
+<style>
+body{
+font-family:Arial;
+max-width:500px;
+margin:50px auto;
+padding:20px;
+}
+input{
+width:100%;
+padding:12px;
+margin:10px 0;
+}
+button{
+padding:12px 20px;
+cursor:pointer;
+}
+#msg{
+margin-top:20px;
+font-weight:bold;
+}
+</style>
+</head>
+<body>
+
+<h2>Email OTP Verification</h2>
+
+<input id="email" type="email" placeholder="Enter Email">
+
+<button onclick="sendOtp()">Send OTP</button>
+
+<hr>
+
+<input id="otp" placeholder="Enter OTP">
+
+<button onclick="verifyOtp()">Verify OTP</button>
+
+<div id="msg"></div>
+
+<script>
+
+async function sendOtp(){
+
+const email=document.getElementById("email").value;
+
+const res=await fetch("/send-otp",{
+method:"POST",
+headers:{
+"Content-Type":"application/json"
+},
+body:JSON.stringify({email})
 });
 
-// Send OTP
+const data=await res.json();
+
+document.getElementById("msg").innerText=data.message;
+}
+
+async function verifyOtp(){
+
+const email=document.getElementById("email").value;
+const otp=document.getElementById("otp").value;
+
+const res=await fetch("/verify-otp",{
+method:"POST",
+headers:{
+"Content-Type":"application/json"
+},
+body:JSON.stringify({
+email,
+otp
+})
+});
+
+const data=await res.json();
+
+document.getElementById("msg").innerText=data.message;
+
+if(data.success){
+document.getElementById("msg").style.color="green";
+}
+}
+
+</script>
+
+</body>
+</html>
+`);
+});
+
+// SEND OTP
 app.post("/send-otp", async (req, res) => {
+
   try {
+
     const { email } = req.body;
 
     if (!email) {
       return res.status(400).json({
-        success: false,
-        message: "Email required",
+        success:false,
+        message:"Email required"
       });
     }
 
@@ -43,74 +136,78 @@ app.post("/send-otp", async (req, res) => {
 
     otpStore[email] = {
       otp,
-      expiresAt: Date.now() + 5 * 60 * 1000,
+      expires: Date.now() + 300000
     };
 
     await transporter.sendMail({
-      from: `"OTP Verification" <${process.env.SMTP_USER}>`,
+      from: process.env.SMTP_USER,
       to: email,
-      subject: "Your Verification OTP",
+      subject: "Your OTP Code",
       html: `
         <h2>Email Verification</h2>
-        <p>Your OTP is:</p>
         <h1>${otp}</h1>
         <p>Valid for 5 minutes.</p>
-      `,
+      `
     });
 
     res.json({
-      success: true,
-      message: "OTP sent successfully",
+      success:true,
+      message:"OTP sent successfully"
     });
-  } catch (error) {
-    console.error(error);
+
+  } catch(err){
+
+    console.error(err);
 
     res.status(500).json({
-      success: false,
-      message: error.message,
+      success:false,
+      message:"Failed to send OTP"
     });
   }
+
 });
 
-// Verify OTP
-app.post("/verify-otp", (req, res) => {
+// VERIFY OTP
+app.post("/verify-otp",(req,res)=>{
+
   const { email, otp } = req.body;
 
-  const record = otpStore[email];
+  const data = otpStore[email];
 
-  if (!record) {
+  if(!data){
     return res.status(400).json({
-      success: false,
-      message: "OTP not found",
+      success:false,
+      message:"OTP not found"
     });
   }
 
-  if (Date.now() > record.expiresAt) {
+  if(Date.now() > data.expires){
+
     delete otpStore[email];
 
     return res.status(400).json({
-      success: false,
-      message: "OTP expired",
+      success:false,
+      message:"OTP expired"
     });
   }
 
-  if (record.otp !== otp) {
+  if(data.otp !== otp){
+
     return res.status(400).json({
-      success: false,
-      message: "Invalid OTP",
+      success:false,
+      message:"Invalid OTP"
     });
   }
 
   delete otpStore[email];
 
   res.json({
-    success: true,
-    message: "Email verified successfully",
+    success:true,
+    message:"✅ Email Verified Successfully"
   });
+
 });
 
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+app.listen(process.env.PORT || 3000,()=>{
+  console.log("Server Running");
 });
